@@ -1,0 +1,17 @@
+# Sistem ve düzenleyici dosyaları
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Yerel bağımlılıklar ve araç durumu
+node_modules/
+.wrangler/
+
+# Yerel erişim bilgileri ve günlükler
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
