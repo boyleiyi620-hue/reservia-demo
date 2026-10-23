@@ -344,6 +344,10 @@
     <div class="two-col">
       <div class="panel"><div class="panel-head"><h3>Yaklaşan rezervasyonlar</h3><button class="text-btn" onclick="app.view('bookings')">Tümünü gör ${svg('arrow', 15)}</button></div>${upcoming.length ? `<div class="booking-table"><div class="tr th"><span>Müşteri</span><span>Tarih / Saat</span><span>Durum</span></div>${upcoming.map(row).join('')}</div>` : '<div class="empty">Henüz yaklaşan rezervasyon yok.<br><small>Yeni bir rezervasyon oluşturarak başla.</small></div>'}</div>
       <div class="panel"><div class="panel-head"><h3>${MONTHS[ui.month.getMonth()]} ${ui.month.getFullYear()}</h3><button class="text-btn" onclick="app.view('calendar')">Takvim ${svg('arrow', 15)}</button></div>${calendarGrid(b.id)}<div class="panel-foot">${todayList.length ? `<span class="muted">Bugün ${todayList.length} rezervasyon</span><button class="text-btn" onclick="app.pickDay('${TODAY_ISO}');app.view('calendar')">Günü aç ${svg('arrow', 15)}</button>` : '<span class="muted">Bugün için rezervasyon yok.</span>'}</div></div>
+    </div>
+    <div class="two-col" style="margin-top:18px">
+      <div class="panel"><div class="panel-head"><h3>Bugün sıra</h3><span class="pill">Gerçek zamanlı</span></div><div id="queue-root"></div></div>
+      <div class="panel"><div class="panel-head"><h3>Son 7 gün</h3><span class="pill pill-green">Eğilim</span></div><div id="insights-root"></div></div>
     </div>`;
   }
 
