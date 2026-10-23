@@ -257,12 +257,63 @@
     applyTheme();
   }
 
+  function renderQueue() {
+    const b = active();
+    const root = $('#queue-root');
+    if (!root) return;
+    const lst = data.bookings.filter(x => x.businessId === b.id && x.date === TODAY_ISO && x.status !== 'cancelled').sort((a, c) => (a.time || '').localeCompare(c.time || ''));
+    if (!lst.length) { root.innerHTML = '<div class="empty">Bugün için sıralı rezervasyon yok.</div>'; return; }
+    root.innerHTML = lst.map((r, i) => `<div class="queue-item"><span class="q-num">${i + 1}</span><span class="q-time">${esc(r.time)}</span><span class="q-main"><b>${esc(r.customer)}</b><small>${esc(r.service)} · ${r.party || 1} kişi</small></span><span class="q-status">${r.status === 'confirmed' ? 'Onaylı' : 'Bekliyor'}</span>${r.status === 'pending' ? `<button class="mini-btn mini-btn-green" onclick="app.setBookingStatus('${esc(r.id)}','confirmed');setTimeout(function(){app.view('overview');},60)">${svg('check', 14)}</button>` : ''}</div>`).join('');
+  }
+
+  function renderInsights() {
+    const b = active();
+    const root = $('#insights-root');
+    if (!root) return;
+    const live = data.bookings.filter(x => x.businessId === b.id && x.status !== 'cancelled');
+    const today = live.filter(x => x.date === TODAY_ISO).length;
+    let week = 0;
+    const now = new Date();
+    for (let di = 0; di < 7; di++) {
+      const nd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + di);
+      if (nd < new Date(now.getFullYear(), now.getMonth(), now.getDate())) continue;
+      const ns = nd.getFullYear() + '-' + pad(nd.getMonth() + 1) + '-' + pad(nd.getDate());
+      week += live.filter(x => x.date === ns).length;
+    }
+    const pending = live.filter(x => x.status === 'pending').length;
+    const arr = [];
+    for (let i = 6; i >= 0; i--) {
+      const nd2 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const ns2 = nd2.getFullYear() + '-' + pad(nd2.getMonth() + 1) + '-' + pad(nd2.getDate());
+      arr.push(live.filter(x => x.date === ns2).length);
+    }
+    const mx = Math.max(1, ...arr);
+    root.innerHTML = `<div class="ins-grid"><div class="ins-card"><span>Bugün</span><strong>${today}</strong></div><div class="ins-card"><span>7 gün</span><strong>${week}</strong></div><div class="ins-card"><span>Bekleyen</span><strong>${pending}</strong></div><div class="ins-card"><span>Aktif</span><strong>${live.length}</strong></div></div><div class="sparkline">${arr.map(v => `<span style="height:${Math.round((v / mx) * 100)}%"></span>`).join('')}</div><p class="muted small">Son 7 gün eğilimi</p>`;
+  }
+
+  function ensureExportPanel() {
+    if (document.querySelector('#export-panel')) return;
+    const side = document.querySelector('.settings-side');
+    if (!side) return;
+    const div = document.createElement('div');
+    div.className = 'panel';
+    div.id = 'export-panel';
+    div.innerHTML = `<div class="panel-head"><h3>Dışa aktar</h3><span class="pill">CSV / ICS</span></div><p class="muted small">Listeyi dışa aktar veya takvim uygulamana aktar.</p><div class="data-actions"><button class="btn btn-secondary" onclick="app.exportCsv()">${svg('download', 15)} CSV indir</button><button class="btn btn-secondary" onclick="app.exportIcs()">${svg('calendar', 15)} Takvim (.ics)</button><button class="btn btn-secondary" onclick="app.openBook()">${svg('user', 15)} Müşteri görünümü</button></div>`;
+    side.appendChild(div);
+  }
+
   function render() {
     shell();
     const c = $('#content');
     if (!c) return;
     const views = { businesses, overview, calendar, bookings, settings, book };
     c.innerHTML = (views[ui.view] || businesses)();
+    setTimeout(() => {
+      try {
+        if (ui.view === 'overview') { renderQueue(); renderInsights(); }
+        if (ui.view === 'settings') { ensureExportPanel(); }
+      } catch (e) { }
+    }, 50);
   }
 
   /* ---------- shared pieces ---------- */
@@ -895,7 +946,8 @@
     pickDay, shiftMonth, goToday, setFilter, notifications,
     openBook, closeBook, wizSet, wizParty, wizNext, wizBack, submitWizard, restartWizard,
     exportData, importData, resetData, refreshSlots, exportCsv, exportIcs,
-    openCustomer: openBook, active, _data: () => data
+    openCustomer: openBook, active, _data: () => data,
+    renderQueue, renderInsights
   };
 
   applyTheme();
