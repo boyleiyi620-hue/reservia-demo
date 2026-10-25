@@ -41,6 +41,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     publicBusiness: null,
     publicFlow: { step: 1, service: '', party: 1, date: localDate(), time: '', slots: [], loading: false, result: null, error: '' },
     modalType: null,
+    pendingVerificationEmail: '',
+    resendCooldownUntil: 0,
     toastTimer: null,
     realtime: null,
     slotRefreshTimer: null,
@@ -121,7 +123,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
   function authForm(mode) {
     const register = mode === 'register';
-    return `<div class="modal"><div class="modal-head"><h2>${register ? 'Hesabını oluştur' : 'Tekrar hoş geldin'}</h2><button class="icon-btn" type="button" data-action="close">×</button></div><form class="modal-body" data-auth-mode="${mode}"><div class="tabs"><button type="button" class="${register ? '' : 'active'}" data-action="auth-tab" data-mode="login">Giriş yap</button><button type="button" class="${register ? 'active' : ''}" data-action="auth-tab" data-mode="register">Kayıt ol</button></div>${register ? '<label class="field">Ad soyad<input name="name" autocomplete="name" required minlength="2" maxlength="100" placeholder="Adınız ve soyadınız"></label>' : ''}<label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label><label class="field">Şifre<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" required minlength="8"></label><p class="muted small">${register ? 'Kayıt sonrası e-posta doğrulaması istenebilir.' : 'İşletme panelinize güvenli şekilde giriş yapın.'}</p><div class="modal-footer"><button class="btn btn-primary" type="submit">${register ? 'Hesap oluştur' : 'Giriş yap'}</button></div></form></div>`;
+    return `<div class="modal"><div class="modal-head"><h2>${register ? 'Hesabını oluştur' : 'Tekrar hoş geldin'}</h2><button class="icon-btn" type="button" data-action="close">×</button></div><form class="modal-body" data-auth-mode="${mode}"><div class="tabs"><button type="button" class="${register ? '' : 'active'}" data-action="auth-tab" data-mode="login">Giriş yap</button><button type="button" class="${register ? 'active' : ''}" data-action="auth-tab" data-mode="register">Kayıt ol</button></div>${register ? '<label class="field">Ad soyad<input name="name" autocomplete="name" required minlength="2" maxlength="100" placeholder="Adınız ve soyadınız"></label>' : ''}<label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label><label class="field">Şifre<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" required minlength="8"></label><p class="muted small">${register ? 'Hesabınızı kullanmadan önce e-posta adresinizi doğrulamanız gerekir.' : 'İşletme panelinize güvenli şekilde giriş yapın.'}</p><div class="modal-footer"><button class="btn btn-primary" type="submit">${register ? 'Hesap oluştur' : 'Giriş yap'}</button></div></form></div>`;
+  }
+
+  function verificationModal(email, message = '') {
+    const safeEmail = esc(email);
+    return `<div class="modal"><div class="modal-head"><h2>E-postanızı doğrulayın</h2><button class="icon-btn" type="button" data-action="close">×</button></div><div class="modal-body"><p>${message ? esc(message) + ' ' : ''}Doğrulama bağlantısını <strong>${safeEmail}</strong> adresine gönderdik. Hesabınıza giriş yapmadan önce bu bağlantıyı açmanız gerekiyor.</p><p class="muted small">E-posta birkaç dakika içinde gelmezse spam veya gereksiz klasörünü de kontrol edin.</p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="login">Girişe dön</button><button class="btn btn-primary" type="button" data-action="resend-verification">Doğrulama e-postasını yeniden gönder</button></div></div></div>`;
   }
 
   function modal(type, extra) {
@@ -130,6 +137,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     state.modalType = type;
     let html = '';
     if (type === 'login' || type === 'register' || type === 'auth') html = authForm(type === 'register' ? 'register' : 'login');
+    else if (type === 'verification') html = verificationModal(extra?.email || state.pendingVerificationEmail, extra?.message || '');
     else if (type === 'new-business') html = businessForm();
     else if (type === 'booking') html = bookingForm(extra);
     else if (type === 'guide') html = `<div class="modal"><div class="modal-head"><h2>Nasıl çalışır?</h2><button class="icon-btn" type="button" data-action="close">×</button></div><div class="modal-body"><p>İşletmenizi ekleyin, çalışma saatlerinizi ve hizmetlerinizi ayarlayın; ardından müşteri bağlantınızı yayımlayın. Müşteriler sadece açık saatleri görür, alınan randevular takviminize eklenir.</p></div><div class="modal-footer"><button class="btn btn-primary" type="button" data-action="close">Anladım</button></div></div>`;
@@ -149,6 +157,63 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const layer = $('#modal-layer');
     if (layer) { layer.classList.remove('open'); layer.innerHTML = ''; }
     state.modalType = null;
+  }
+
+  function authErrorMessage(mode) {
+    return mode === 'register'
+      ? 'Hesap oluşturulamadı. Bilgilerinizi kontrol edip tekrar deneyin.'
+      : 'Giriş yapılamadı. E-posta adresinizi ve şifrenizi kontrol edip tekrar deneyin.';
+  }
+
+  function isEmailNotConfirmed(error) {
+    const code = String(error?.code || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    return code === 'email_not_confirmed' || message.includes('email not confirmed') || message.includes('email_not_confirmed');
+  }
+
+  function authRedirectUrl() {
+    return location.origin + location.pathname;
+  }
+
+  function consumeAuthCallbackError() {
+    const url = new URL(location.href);
+    const params = new URLSearchParams(url.search);
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const hasError = [params, hashParams].some(source => ['error', 'error_code', 'error_description'].some(key => source.has(key)));
+    if (!hasError) return '';
+    const code = params.get('error_code') || hashParams.get('error_code') || params.get('error') || hashParams.get('error');
+    [params, hashParams].forEach(source => ['error', 'error_code', 'error_description'].forEach(key => source.delete(key)));
+    url.search = params.toString();
+    url.hash = hashParams.toString();
+    history.replaceState(null, '', url.toString());
+    return code === 'otp_expired' || code === 'access_denied'
+      ? 'Doğrulama bağlantısı geçersiz veya süresi dolmuş. Yeni bir doğrulama e-postası isteyebilirsiniz.'
+      : 'E-posta doğrulaması tamamlanamadı. Yeni bir doğrulama e-postası isteyebilirsiniz.';
+  }
+
+  async function resendVerification(button) {
+    const email = state.pendingVerificationEmail;
+    if (!email) { toast('Doğrulama e-postası yeniden gönderilemedi.'); return; }
+    const remaining = state.resendCooldownUntil - Date.now();
+    if (remaining > 0) { toast(`Lütfen ${Math.ceil(remaining / 1000)} saniye bekleyin.`); return; }
+    if (button) { button.disabled = true; button.textContent = 'Gönderiliyor…'; }
+    let error;
+    try {
+      ({ error } = await db.auth.resend({ type: 'signup', email, options: { emailRedirectTo: authRedirectUrl() } }));
+    } catch (_) { error = true; }
+    if (error) {
+      if (button) { button.disabled = false; button.textContent = 'Doğrulama e-postasını yeniden gönder'; }
+      toast('E-posta yeniden gönderilemedi. Lütfen biraz sonra tekrar deneyin.');
+      return;
+    }
+    state.resendCooldownUntil = Date.now() + 30000;
+    if (button) button.textContent = 'E-posta gönderildi (30 sn)';
+    toast('Doğrulama e-postası yeniden gönderildi.');
+    window.setTimeout(() => {
+      if (state.modalType !== 'verification') return;
+      const current = $('[data-action="resend-verification"]');
+      if (current) { current.disabled = false; current.textContent = 'Doğrulama e-postasını yeniden gönder'; }
+    }, 30000);
   }
 
   function businessForm() {
@@ -543,26 +608,44 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   async function authSubmit(form) {
-    const values = new FormData(form);
-    const mode = form.dataset.authMode;
-    const email = String(values.get('email') || '').trim();
-    const password = String(values.get('password') || '');
-    let result;
-    if (mode === 'register') {
-      result = await db.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname, data: { full_name: String(values.get('name') || '').trim() } } });
-      if (result.error) { toast('Kayıt oluşturulamadı: ' + result.error.message); return; }
-      if (!result.data.session) {
-        closeModal();
-        toast('Hesabınız oluşturuldu. Giriş yapmadan önce e-postanızı doğrulayın.');
-        return;
+    if (form.dataset.submitting === 'true') return;
+    form.dataset.submitting = 'true';
+    const submit = form.querySelector('button[type="submit"]');
+    const originalLabel = submit?.textContent;
+    if (submit) { submit.disabled = true; submit.textContent = 'Bekleyin…'; }
+    try {
+      const values = new FormData(form);
+      const mode = form.dataset.authMode;
+      const email = String(values.get('email') || '').trim();
+      const password = String(values.get('password') || '');
+      let result;
+      if (mode === 'register') {
+        result = await db.auth.signUp({ email, password, options: { emailRedirectTo: authRedirectUrl(), data: { full_name: String(values.get('name') || '').trim() } } });
+        if (result.error) { toast(authErrorMessage(mode)); return; }
+        if (!result.data.session) {
+          state.pendingVerificationEmail = email;
+          modal('verification', { email });
+          return;
+        }
+      } else {
+        result = await db.auth.signInWithPassword({ email, password });
+        if (result.error) {
+          if (isEmailNotConfirmed(result.error)) {
+            state.pendingVerificationEmail = email;
+            modal('verification', { email, message: 'Bu e-posta adresi henüz doğrulanmamış.' });
+          } else toast(authErrorMessage(mode));
+          return;
+        }
       }
-    } else {
-      result = await db.auth.signInWithPassword({ email, password });
-      if (result.error) { toast('Giriş başarısız: e-posta ve şifrenizi kontrol edin.'); return; }
+      closeModal();
+      await refreshSession(result.data.session);
+      toast(mode === 'register' ? 'Hesabınız oluşturuldu.' : 'Giriş yapıldı.');
+    } catch (_) {
+      toast(authErrorMessage(form.dataset.authMode));
+    } finally {
+      form.dataset.submitting = 'false';
+      if (submit && document.body.contains(form)) { submit.disabled = false; submit.textContent = originalLabel; }
     }
-    closeModal();
-    await refreshSession(result.data.session);
-    toast(mode === 'register' ? 'Hesabınız oluşturuldu.' : 'Giriş yapıldı.');
   }
 
   async function signOut() {
@@ -633,6 +716,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     else if (action === 'register') modal('register');
     else if (action === 'close') closeModal();
     else if (action === 'auth-tab') modal(target.dataset.mode);
+    else if (action === 'resend-verification') resendVerification(target);
     else if (action === 'new-business') modal('new-business');
     else if (action === 'select-business') selectedBusiness(target.dataset.id);
     else if (action === 'view-bookings') selectView('bookings');
@@ -698,12 +782,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   };
 
   async function boot() {
+    const callbackError = consumeAuthCallbackError();
     const publicRoute = await openPublicRoute();
     if (publicRoute) return;
     document.body.classList.add('cloud-loading');
     const { data, error } = await db.auth.getSession();
     if (error) { guestScreen(); toast('Oturum kontrol edilemedi: ' + error.message); return; }
     await refreshSession(data.session);
+    if (callbackError) toast(callbackError);
     db.auth.onAuthStateChange((_event, session) => {
       queueMicrotask(() => refreshSession(session));
     });
