@@ -159,10 +159,36 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     state.modalType = null;
   }
 
-  function authErrorMessage(mode) {
-    return mode === 'register'
-      ? 'Hesap oluşturulamadı. Bilgilerinizi kontrol edip tekrar deneyin.'
-      : 'Giriş yapılamadı. E-posta adresinizi ve şifrenizi kontrol edip tekrar deneyin.';
+  function authErrorMessage(mode, error) {
+    const code = String(error?.code || '').toLowerCase();
+    const message = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+    const isResend = mode === 'resend';
+    if (mode === 'register' || isResend) {
+      if (code === 'email_exists' || code === 'user_already_exists') return 'Bu e-posta adresiyle zaten bir hesap var. Giriş yapmayı veya e-posta doğrulamasını yeniden istemeyi deneyin.';
+      if (code === 'weak_password') return 'Şifre güvenlik koşullarını karşılamıyor. En az 8 karakterli ve daha güçlü bir şifre seçin.';
+      if (code === 'email_address_invalid' || code === 'validation_failed') return 'E-posta adresi veya kayıt bilgileri geçerli görünmüyor. Bilgileri kontrol edin.';
+      if (code === 'signup_disabled' || code === 'email_provider_disabled') return 'E-posta ile yeni hesap oluşturma Supabase projesinde kapalı. Kayıt tamamlanmadı.';
+      if (code === 'email_address_not_authorized') return 'Supabase’in varsayılan e-posta servisi bu adres için gönderime izin vermedi. Özel SMTP yapılandırması gerekir; kayıt tamamlanmadı.';
+      if (code.includes('rate_limit') || code === 'over_email_send_rate_limit' || /too many requests|rate limit|too many emails/.test(message)) return isResend
+        ? 'Doğrulama e-postası gönderim sınırına ulaşıldı. Bir süre bekleyip yeniden deneyin.'
+        : 'Doğrulama e-postası gönderim sınırına ulaşıldı. Bir süre bekleyip yeniden deneyin; kayıt tamamlanmamış olabilir.';
+      if (/535|username and password not accepted|smtp.*(auth|credential|password)|authentication failed/.test(message)) return isResend
+        ? 'Gmail SMTP kimlik doğrulaması başarısız (535: kullanıcı adı veya şifre kabul edilmedi). Doğrulama e-postası yeniden gönderilemedi.'
+        : 'Gmail SMTP kimlik doğrulaması başarısız (535: kullanıcı adı veya şifre kabul edilmedi). Doğrulama e-postası gönderilemedi; bu kayıt isteği tamamlanmadı. E-posta doğrulaması açık kalmalı.';
+      if (/error sending confirmation mail|error sending confirmation email|failed to send.{0,40}(confirmation|email)|confirmation email.{0,40}(failed|error)/.test(message)) return isResend
+        ? 'Supabase doğrulama e-postasını yeniden gönderemedi. Bu projede Gmail SMTP daha önce 535 “Username and Password not accepted” hatası verdi.'
+        : 'Supabase doğrulama e-postasını gönderemedi; bu kayıt isteği tamamlanmadı. Bu projede Gmail SMTP daha önce 535 “Username and Password not accepted” hatası verdi. E-posta doğrulaması açık kalmalı; mevcut SMTP kimlik doğrulama engeli çözülmeden kayıt tamamlanamaz.';
+      if (error?.name === 'TypeError' || /failed to fetch|network|fetch failed/.test(message)) return isResend
+        ? 'Supabase’e bağlanılamadı; doğrulama e-postası yeniden gönderilemedi. İnternet bağlantısını kontrol edip tekrar deneyin.'
+        : 'Hesap oluşturulamadı: Supabase’e bağlanılamadı. İnternet bağlantısını kontrol edip tekrar deneyin.';
+      if (isResend && (Number(error?.status || error?.statusCode) >= 500 || code === 'unexpected_failure')) return 'Supabase Auth doğrulama e-postasını yeniden gönderemedi. Auth günlüklerindeki hatayı kontrol edin.';
+      if (isResend) return 'Doğrulama e-postası yeniden gönderilemedi. E-posta adresini kontrol edip biraz sonra tekrar deneyin.';
+      if (Number(error?.status || error?.statusCode) >= 500 || code === 'unexpected_failure') return 'Supabase Auth kayıt işlemini tamamlayamadı. Hesabın oluştuğunu varsaymayın; Supabase Auth günlüklerinde hata ayrıntısını kontrol edin.';
+      return 'Hesap oluşturulamadı. Hesabın oluşturulduğunu varsaymayın; e-posta adresini ve şifreyi kontrol edin.';
+    }
+    if (code === 'email_not_confirmed' || message.includes('email not confirmed') || message.includes('email_not_confirmed')) return 'Bu e-posta henüz doğrulanmamış. Doğrulama bağlantısını açın veya yeniden gönderin.';
+    if (error?.name === 'TypeError' || /failed to fetch|network|fetch failed/.test(message)) return 'Supabase’e bağlanılamadı. İnternet bağlantısını kontrol edip tekrar deneyin.';
+    return 'Giriş yapılamadı. E-posta adresinizi ve şifrenizi kontrol edip tekrar deneyin.';
   }
 
   function isEmailNotConfirmed(error) {
@@ -200,10 +226,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     let error;
     try {
       ({ error } = await db.auth.resend({ type: 'signup', email, options: { emailRedirectTo: authRedirectUrl() } }));
-    } catch (_) { error = true; }
+    } catch (caught) { error = caught; }
     if (error) {
       if (button) { button.disabled = false; button.textContent = 'Doğrulama e-postasını yeniden gönder'; }
-      toast('E-posta yeniden gönderilemedi. Lütfen biraz sonra tekrar deneyin.');
+      toast(authErrorMessage('resend', error));
       return;
     }
     state.resendCooldownUntil = Date.now() + 30000;
@@ -621,7 +647,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       let result;
       if (mode === 'register') {
         result = await db.auth.signUp({ email, password, options: { emailRedirectTo: authRedirectUrl(), data: { full_name: String(values.get('name') || '').trim() } } });
-        if (result.error) { toast(authErrorMessage(mode)); return; }
+        if (result.error) { toast(authErrorMessage(mode, result.error)); return; }
         if (!result.data.session) {
           state.pendingVerificationEmail = email;
           modal('verification', { email });
@@ -633,15 +659,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
           if (isEmailNotConfirmed(result.error)) {
             state.pendingVerificationEmail = email;
             modal('verification', { email, message: 'Bu e-posta adresi henüz doğrulanmamış.' });
-          } else toast(authErrorMessage(mode));
+          } else toast(authErrorMessage(mode, result.error));
           return;
         }
       }
       closeModal();
       await refreshSession(result.data.session);
       toast(mode === 'register' ? 'Hesabınız oluşturuldu.' : 'Giriş yapıldı.');
-    } catch (_) {
-      toast(authErrorMessage(form.dataset.authMode));
+    } catch (error) {
+      toast(authErrorMessage(form.dataset.authMode, error));
     } finally {
       form.dataset.submitting = 'false';
       if (submit && document.body.contains(form)) { submit.disabled = false; submit.textContent = originalLabel; }
