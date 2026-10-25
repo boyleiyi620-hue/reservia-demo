@@ -675,7 +675,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   document.addEventListener('change', onChange);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
-  $('#theme-toggle')?.addEventListener('click', toggleTheme);
 
   window.app = {
     view: selectView,
