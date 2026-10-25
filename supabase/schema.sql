@@ -345,13 +345,13 @@ begin
 end;
 $$;
 
-revoke all on function public.create_business(text,text,text,text,text) from public;
+revoke all on function public.create_business(text,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.create_business(text,text,text,text,text) to authenticated;
-revoke all on function public.update_business_settings(uuid,text,text,text,text,text,text,integer,integer,integer,smallint[],text[],jsonb,boolean) from public;
+revoke all on function public.update_business_settings(uuid,text,text,text,text,text,text,integer,integer,integer,smallint[],text[],jsonb,boolean) from public, anon, authenticated;
 grant execute on function public.update_business_settings(uuid,text,text,text,text,text,text,integer,integer,integer,smallint[],text[],jsonb,boolean) to authenticated;
-revoke all on function public.available_slots(text,date,integer) from public;
+revoke all on function public.available_slots(text,date,integer) from public, anon, authenticated;
 grant execute on function public.available_slots(text,date,integer) to anon, authenticated;
-revoke all on function public.create_public_booking(text,date,time,text,integer,text,text,text,text) from public;
+revoke all on function public.create_public_booking(text,date,time,text,integer,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.create_public_booking(text,date,time,text,integer,text,text,text,text) to anon, authenticated;
 
 -- Optional owner-side writes to services/hours can be added later through
