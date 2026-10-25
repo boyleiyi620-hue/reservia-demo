@@ -1,71 +1,36 @@
-# Reservia — Çok işletmeli rezervasyon demosu
+# Reservia — çevrimiçi randevu yönetimi
 
-Otel, berber, kafe ve benzeri işletmeler için hazırlanmış Türkçe, etkileşimli rezervasyon yönetimi prototipi. Framework veya derleme adımı gerektirmez; HTML, CSS ve JavaScript ile çalışır.
+Türkçe arayüzlü, çok işletmeli randevu uygulaması. İşletme sahipleri hesap açıp işletmelerini yönetebilir; yayımlanan müşteri bağlantısı üzerinden müşteriler uygun saatleri görerek randevu isteği gönderebilir. Dolu saatler veritabanında kontrol edilir ve işletme panelindeki takvim ile genel bakışta görünür.
 
-**Canlı demo:** https://boyleiyi620-hue.github.io/reservia-demo/
+**Canlı site:** https://boyleiyi620-hue.github.io/reservia-demo/
 
-## Özellikler
+## Gerçek hesapları ve ortak veriyi etkinleştirme
 
-### Yönetim tarafı
-- Demo giriş/kayıt ekranları ve çalışma alanı.
-- İşletme seçimi, yeni işletme ekleme (türe göre otomatik ayar ve görsel).
-- **Genel bakış:** bugünün rezervasyonları, 7 günlük özet, onay bekleyenler ve aylık doluluk oranı.
-- **Takvim:** ay gezinme, gün bazlı rezervasyon sayıları, güne tıklayınca o günün programı, hızlı rezervasyon ekleme.
-- **Rezervasyonlar:** metin arama, durum/tarih filtresi, sıralama; tek tıkla onaylama, beklemeye alma, iptal ve silme — tümü **Geri al** destekli.
-- **Özelleştirme:** işletme adı, tema rengi, rezervasyon aralığı, çalışma saatleri ve günleri, slot süresi, kapasite ve hizmet listesi.
-- Canlı müşteri önizlemesi.
+Uygulama statik GitHub Pages üzerinde çalışır; kullanıcı hesapları ve cihazlar arasında paylaşılan veriler Supabase Auth ve Postgres kullanır. Aşağıdaki kurulum bir kez yapılmalıdır:
 
-### Müşteri tarafı
-- 3 adımlı rezervasyon akışı: hizmet ve kişi sayısı → tarih ve saat → iletişim bilgileri.
-- Yalnızca gerçekten uygun saatler seçilebilir; dolu slotlar ve kapalı günler otomatik devre dışı kalır.
-- Rezervasyon kodu ile onay ekranı; oluşturulan talep yönetim panelinde "Bekliyor" olarak görünür.
+1. Supabase’te bir proje oluşturun.
+2. Supabase SQL Editor’ü açıp [`supabase/schema.sql`](supabase/schema.sql) dosyasının tamamını çalıştırın. Bu şema işletmeleri, üyelikleri, çalışma saatlerini, hizmetleri, randevuları, erişim kurallarını ve çakışmayı engelleyen veritabanı işlevlerini kurar.
+3. Supabase **Authentication → URL Configuration** bölümünde site URL’sini `https://boyleiyi620-hue.github.io/reservia-demo/` olarak ayarlayın. Gerekli yönlendirme adreslerine bu adresi ve yerel geliştirme için `http://localhost:8080/**` adresini ekleyin. E-posta/şifre ile kaydı etkinleştirin.
+   **Authentication → Emails → SMTP Settings** bölümünde kendi SMTP hizmetinizi bağlayın ve e-posta doğrulamasını açık bırakın. [Supabase’in varsayılan SMTP hizmeti](https://supabase.com/docs/guides/auth/auth-smtp) yalnız kuruluş ekibindeki adreslere posta gönderir; herkese açık kayıt için uygun değildir. SMTP şifresini yalnız Supabase ayarlarında tutun, Git deposuna veya tarayıcı koduna eklemeyin.
+4. Supabase proje URL’sini ve **publishable/anon** anahtarını `supabase-config.js` içindeki `url` ve `anonKey` alanlarına girin. Bu anahtar tarayıcıda kullanılmak üzere tasarlanmıştır. **`service_role` anahtarını bu dosyaya veya Git deposuna koymayın.** Satır düzeyi güvenlik (RLS) kuralları veri erişimini sınırlar.
+5. Değişiklikleri `main` dalına gönderin; GitHub Pages sitenizi yayımlar. Sonra canlı bağlantıda kayıt ve müşteri randevu akışını deneyin.
 
-### Genel
-- Açık/koyu tema (sistem tercihine saygı duyar, seçim hatırlanır).
-- Veri yedekleme (JSON indir), geri yükleme ve demoyu sıfırlama.
-- `localStorage` ile tarayıcıda kalıcılık; sunucu veya API gerekmez.
-- Mobil uyumlu tasarım, yerel font ve görseller, klavye ile kullanılabilir modallar.
+Supabase URL/anahtarı girilmediğinde sayfa, sunucuya veri göndermeyen yerel demo modunda açılır. Gerçek hesap ve paylaşılmış randevu için Supabase yapılandırması ve şema kurulumu gerekir. Yeni işletmeler başlangıçta hafta içi 09.00–17.00 saatleri ve “Randevu” hizmetiyle açılır; işletme sahibi bunları panelde değiştirebilir. Rezervasyon bağlantısı `?business=işletme-slug` parametresini kullanır.
 
 ## Yerelde çalıştırma
 
-Repo klasöründe herhangi bir statik sunucu yeterlidir:
+Depo klasöründe statik bir sunucu başlatın:
 
 ```sh
 python3 -m http.server 8080
-# veya
-npx serve .
 ```
 
-Ardından `http://localhost:8080` adresini açın. Node.js kurulumu ve API anahtarı gerekmez.
+Ardından `http://localhost:8080` adresini açın. Gerçek Supabase hesabı denemek için `supabase-config.js` içinde aynı proje URL/anon anahtarını kullanın ve Supabase yönlendirme adreslerine `http://localhost:8080/**` ekleyin.
 
-## Demo akışı
+## Teknoloji ve güvenlik
 
-1. **İşletmelerim** ekranından bir işletme seçin (ör. Mysa Boutique Hotel).
-2. **Genel bakış** ekranında günün özetini ve takvimi inceleyin.
-3. **Rezervasyonlar** ekranında bekleyen bir kaydı onaylayın veya iptal edin.
-4. **Müşteri görünümü** düğmesiyle müşteri rezervasyon akışını baştan sona deneyin.
-5. **Özelleştirme** ekranından çalışma saatlerini ve hizmetleri değiştirip takvimin nasıl güncellendiğini görün.
+Arayüz HTML, CSS ve JavaScript’tir; derleme adımı gerekmez. `cloud-app.js` Supabase Auth oturumunu kullanır. İşletme üyeliği ve randevular RLS ile korunur. Müşteri sayfası yalnızca yayımlanmış işletme bilgilerini ve kişisel bilgi içermeyen uygun saat listesini okuyabilir. Randevu oluşturma işlemi veritabanında kilitlenip kapasiteyi tekrar denetler; eşzamanlı istekler aynı yeri iki kez alamaz.
 
-Tüm veriler demo tarihine (bugün) göre üretilir; takvim ve rezervasyon aralıkları buna göre hesaplanır.
+Randevular oluşturuldukları andaki süreyi saklar; işletme slot süresini değiştirse de mevcut randevularla çakışan yeni saatler kapalı kalır. Geçmiş saatlere randevu alınamaz. İptal edilmiş bir randevu yeniden etkinleştirilmez; gerekiyorsa yeni uygun saat seçilerek yeni randevu eklenir. Panel yalnız oturum sahibinin üyeliği olan işletmeleri yükler. Herkese açık uygunluk listesi 15 saniyede bir yenilenir; son kapasite kontrolü her zaman veritabanında yapılır.
 
-## Dosyalar
-
-```text
-index.html   Sayfa iskeleti ve gezinme
-styles.css   Masaüstü/mobil stiller, koyu tema, yerel font tanımları
-app.js       Demo verisi, takvim, rezervasyon akışı ve tarayıcı içi saklama
-assets/      İşletme fotoğrafları ve font dosyaları
-```
-
-## Sınırlar
-
-Bu bir ürün demosudur, üretim uygulaması değildir. Gerçek kimlik doğrulama, sunucu, veritabanı, ödeme, e-posta/SMS gönderimi veya işletmeye rezervasyon iletimi içermez. Şifreler saklanmaz. Veriler yalnızca kullanılan tarayıcıda tutulur; cihazlar veya kullanıcılar arasında paylaşılmaz. Gerçek kişisel veri girmeyin.
-
-Demo verilerini sıfırlamak için **Özelleştirme → Veri → Sıfırla** yolunu kullanabilir veya tarayıcı konsolunda:
-
-```js
-localStorage.removeItem('reservia-demo-v2');
-location.reload();
-```
-
-Görseller prototip amaçlıdır; ticari kullanımdan önce görsel ve font lisanslarını doğrulayın.
+Gerçek müşterilerin kişisel verilerini yalnızca kendi Supabase projenizde, gizlilik ve veri saklama yükümlülüklerinize uygun biçimde kullanın.

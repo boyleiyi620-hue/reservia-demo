@@ -25,6 +25,11 @@
   const fmtShort = s => { const d = parseISO(s); return d.getDate() + ' ' + MONTHS_SHORT[d.getMonth()]; };
   const weekdayOf = s => parseISO(s).getDay();
   const weekdayIndex = s => weekdayOf(s) || 7;
+  function renderIfChanged(root, key, html) {
+    if (root.dataset[key] === html) return;
+    root.dataset[key] = html;
+    root.innerHTML = html;
+  }
 
   function svg(n, s = 18) {
     const icons = {
@@ -177,8 +182,8 @@
       .sort((a, b) => (a.time + a.date).localeCompare(b.time + b.date));
     const root = $('#queue-root');
     if (!root) return;
-    if (!list.length) { root.innerHTML = '<div class="empty">Bugün için sıralı rezervasyon yok.</div>'; return; }
-    root.innerHTML = list.map((r, i) => `<div class="queue-item"><span class="q-num">${i + 1}</span><span class="q-time">${r.time}</span><span class="q-main"><b>${esc(r.customer)}</b><small>${esc(r.service)} · ${r.party} kişi</small></span><span class="q-status">${r.status === 'confirmed' ? 'Onaylı' : 'Bekliyor'}</span>${r.status === 'pending' ? `<button class="mini-btn mini-btn-green" onclick="app.setBookingStatus('${esc(r.id)}','confirmed');app._refreshQueue&&app._refreshQueue()">${svg('check', 14)}</button>` : ''}</div>`).join('');
+    if (!list.length) { renderIfChanged(root, 'renderedQueue', '<div class="empty">Bugün için sıralı rezervasyon yok.</div>'); return; }
+    renderIfChanged(root, 'renderedQueue', list.map((r, i) => `<div class="queue-item"><span class="q-num">${i + 1}</span><span class="q-time">${r.time}</span><span class="q-main"><b>${esc(r.customer)}</b><small>${esc(r.service)} · ${r.party} kişi</small></span><span class="q-status">${r.status === 'confirmed' ? 'Onaylı' : 'Bekliyor'}</span>${r.status === 'pending' ? `<button class="mini-btn mini-btn-green" onclick="app.setBookingStatus('${esc(r.id)}','confirmed');app._refreshQueue&&app._refreshQueue()">${svg('check', 14)}</button>` : ''}</div>`).join(''));
   }
 
   /* ---------- hızlı istatistikler ---------- */
@@ -200,14 +205,14 @@
     const max = Math.max(1, ...last7);
     const root = $('#insights-root');
     if (!root) return;
-    root.innerHTML = `<div class="ins-grid">
+    renderIfChanged(root, 'renderedInsights', `<div class="ins-grid">
       <div class="ins-card"><span>Bugün</span><strong>${today}</strong></div>
       <div class="ins-card"><span>7 gün</span><strong>${week}</strong></div>
       <div class="ins-card"><span>Bekleyen</span><strong>${pending}</strong></div>
       <div class="ins-card"><span>Kapasite</span><strong>${Number((window.app._settings&&window.app._settings(id)||{}).capacity)||1} kişi/slot</strong></div>
     </div>
     <div class="sparkline">${last7.map(v => `<span style="height:${Math.round((v/max)*100)}%" title="${v}"></span>`).join('')}</div>
-    <p class="muted small">Son 7 gün eğilimi · ${esc(b.name)}</p>`;
+    <p class="muted small">Son 7 gün eğilimi · ${esc(b.name)}</p>`);
   }
 
   /* ---------- müşteri paneline hızlı link ---------- */
