@@ -126,9 +126,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     return `<div class="modal"><div class="modal-head"><h2>${register ? 'Hesabını oluştur' : 'Tekrar hoş geldin'}</h2><button class="icon-btn" type="button" data-action="close">×</button></div><form class="modal-body" data-auth-mode="${mode}"><div class="tabs"><button type="button" class="${register ? '' : 'active'}" data-action="auth-tab" data-mode="login">Giriş yap</button><button type="button" class="${register ? 'active' : ''}" data-action="auth-tab" data-mode="register">Kayıt ol</button></div>${register ? '<label class="field">Ad soyad<input name="name" autocomplete="name" required minlength="2" maxlength="100" placeholder="Adınız ve soyadınız"></label>' : ''}<label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label><label class="field">Şifre<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" required minlength="8"></label><p class="muted small">${register ? 'Hesabınızı kullanmadan önce e-posta adresinizi doğrulamanız gerekir.' : 'İşletme panelinize güvenli şekilde giriş yapın.'}</p><div class="modal-footer"><button class="btn btn-primary" type="submit">${register ? 'Hesap oluştur' : 'Giriş yap'}</button></div></form></div>`;
   }
 
-  function verificationModal(email, message = '') {
+  function verificationModal(email, message = '', emailSent = true) {
     const safeEmail = esc(email);
-    return `<div class="modal"><div class="modal-head"><h2>E-postanızı doğrulayın</h2><button class="icon-btn" type="button" data-action="close">×</button></div><div class="modal-body"><p>${message ? esc(message) + ' ' : ''}Doğrulama bağlantısını <strong>${safeEmail}</strong> adresine gönderdik. Hesabınıza giriş yapmadan önce bu bağlantıyı açmanız gerekiyor.</p><p class="muted small">E-posta birkaç dakika içinde gelmezse spam veya gereksiz klasörünü de kontrol edin.</p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="login">Girişe dön</button><button class="btn btn-primary" type="button" data-action="resend-verification">Doğrulama e-postasını yeniden gönder</button></div></div></div>`;
+    const status = emailSent
+      ? `Doğrulama bağlantısını <strong>${safeEmail}</strong> adresine gönderdik. Hesabınıza giriş yapmadan önce bu bağlantıyı açmanız gerekiyor.`
+      : `<strong>${safeEmail}</strong> adresi henüz doğrulanmamış. Giriş yapabilmek için e-postanızdaki doğrulama bağlantısını açın veya yeniden gönderin.`;
+    return `<div class="modal"><div class="modal-head"><h2>E-postanızı doğrulayın</h2><button class="icon-btn" type="button" data-action="close">×</button></div><div class="modal-body"><p>${message ? esc(message) + ' ' : ''}${status}</p><p class="muted small">E-posta birkaç dakika içinde gelmezse spam veya gereksiz klasörünü de kontrol edin.</p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="login">Girişe dön</button><button class="btn btn-primary" type="button" data-action="resend-verification">Doğrulama e-postasını yeniden gönder</button></div></div></div>`;
   }
 
   function modal(type, extra) {
@@ -137,7 +140,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     state.modalType = type;
     let html = '';
     if (type === 'login' || type === 'register' || type === 'auth') html = authForm(type === 'register' ? 'register' : 'login');
-    else if (type === 'verification') html = verificationModal(extra?.email || state.pendingVerificationEmail, extra?.message || '');
+    else if (type === 'verification') html = verificationModal(extra?.email || state.pendingVerificationEmail, extra?.message || '', extra?.emailSent !== false);
     else if (type === 'new-business') html = businessForm();
     else if (type === 'booking') html = bookingForm(extra);
     else if (type === 'guide') html = `<div class="modal"><div class="modal-head"><h2>Nasıl çalışır?</h2><button class="icon-btn" type="button" data-action="close">×</button></div><div class="modal-body"><p>İşletmenizi ekleyin, çalışma saatlerinizi ve hizmetlerinizi ayarlayın; ardından müşteri bağlantınızı yayımlayın. Müşteriler sadece açık saatleri görür, alınan randevular takviminize eklenir.</p></div><div class="modal-footer"><button class="btn btn-primary" type="button" data-action="close">Anladım</button></div></div>`;
@@ -176,8 +179,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         ? 'Gmail SMTP kimlik doğrulaması başarısız (535: kullanıcı adı veya şifre kabul edilmedi). Doğrulama e-postası yeniden gönderilemedi.'
         : 'Gmail SMTP kimlik doğrulaması başarısız (535: kullanıcı adı veya şifre kabul edilmedi). Doğrulama e-postası gönderilemedi; bu kayıt isteği tamamlanmadı. E-posta doğrulaması açık kalmalı.';
       if (/error sending confirmation mail|error sending confirmation email|failed to send.{0,40}(confirmation|email)|confirmation email.{0,40}(failed|error)/.test(message)) return isResend
-        ? 'Supabase doğrulama e-postasını yeniden gönderemedi. Bu projede Gmail SMTP daha önce 535 “Username and Password not accepted” hatası verdi.'
-        : 'Supabase doğrulama e-postasını gönderemedi; bu kayıt isteği tamamlanmadı. Bu projede Gmail SMTP daha önce 535 “Username and Password not accepted” hatası verdi. E-posta doğrulaması açık kalmalı; mevcut SMTP kimlik doğrulama engeli çözülmeden kayıt tamamlanamaz.';
+        ? 'Supabase doğrulama e-postasını yeniden gönderemedi. Bir süre sonra tekrar deneyin.'
+        : 'Supabase doğrulama e-postasını gönderemedi; bu kayıt isteği tamamlanmadı. Bir süre sonra tekrar deneyin.';
       if (error?.name === 'TypeError' || /failed to fetch|network|fetch failed/.test(message)) return isResend
         ? 'Supabase’e bağlanılamadı; doğrulama e-postası yeniden gönderilemedi. İnternet bağlantısını kontrol edip tekrar deneyin.'
         : 'Hesap oluşturulamadı: Supabase’e bağlanılamadı. İnternet bağlantısını kontrol edip tekrar deneyin.';
@@ -658,7 +661,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
         if (result.error) {
           if (isEmailNotConfirmed(result.error)) {
             state.pendingVerificationEmail = email;
-            modal('verification', { email, message: 'Bu e-posta adresi henüz doğrulanmamış.' });
+            modal('verification', { email, emailSent: false });
           } else toast(authErrorMessage(mode, result.error));
           return;
         }
