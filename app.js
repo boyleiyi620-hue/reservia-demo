@@ -237,7 +237,7 @@
   }
 
   /* ---------- shell ---------- */
-  const TITLES = { businesses: 'İşletmelerim', overview: 'Genel bakış', calendar: 'Takvim', bookings: 'Rezervasyonlar', settings: 'Özelleştirme', book: 'Müşteri görünümü' };
+  const TITLES = { businesses: 'İşletmelerim', overview: 'Genel bakış', calendar: 'Takvim', bookings: 'Rezervasyonlar', settings: 'Randevu ayarları', editor: 'Sayfa düzenleyici', book: 'Müşteri görünümü' };
 
   function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
 
@@ -306,7 +306,7 @@
     shell();
     const c = $('#content');
     if (!c) return;
-    const views = { businesses, overview, calendar, bookings, settings, book };
+    const views = { businesses, overview, calendar, bookings, settings, editor, book };
     c.innerHTML = (views[ui.view] || businesses)();
     setTimeout(() => {
       try {
@@ -371,7 +371,7 @@
     <div class="business-grid">${data.businesses.map(b => {
       const live = liveBookings(b.id);
       const today = live.filter(x => x.date === TODAY_ISO).length;
-      return `<article class="business-card ${data.selected === b.id ? 'selected' : ''}"><div class="card-image"><img src="${esc(b.img)}" alt="${esc(b.name)}" loading="lazy"><span class="category">${esc(b.type)}</span><span class="pill pill-green active-badge">Aktif</span></div><div class="card-body"><h3>${esc(b.name)}</h3><div class="card-meta"><span>${svg('calendar', 15)} ${esc(b.location)}</span><span>${live.length} rezervasyon</span></div><div class="card-meta card-meta-tight"><span>${svg('clock', 15)} Bugün ${today} rezervasyon</span><span>${bookingsOf(b.id).filter(x => x.status === 'pending' && x.date >= TODAY_ISO).length} bekleyen</span></div><button class="business-cta" onclick="app.select('${esc(b.id)}')">Yönetim paneline git ${svg('arrow', 16)}</button></div></article>`;
+      return `<article class="business-card ${data.selected === b.id ? 'selected' : ''}"><div class="card-image"><img src="${esc(b.cover_image_url || b.img)}" alt="${esc(b.name)}" loading="lazy">${b.logo_url ? `<img class="business-card-logo" src="${esc(b.logo_url)}" alt="${esc(b.name)} logosu">` : ''}<span class="category">${esc(b.type)}</span><span class="pill pill-green active-badge">Aktif</span></div><div class="card-body"><h3>${esc(b.name)}</h3><div class="card-meta"><span>${svg('calendar', 15)} ${esc(b.location)}</span><span>${live.length} rezervasyon</span></div><div class="card-meta card-meta-tight"><span>${svg('clock', 15)} Bugün ${today} rezervasyon</span><span>${bookingsOf(b.id).filter(x => x.status === 'pending' && x.date >= TODAY_ISO).length} bekleyen</span></div><button class="business-cta" onclick="app.select('${esc(b.id)}')">Yönetim paneline git ${svg('arrow', 16)}</button></div></article>`;
     }).join('')}</div>
     <div class="onboarding-banner"><div class="round-icon">${svg('calendar', 22)}</div><div><h3>İşletmene özel bir rezervasyon deneyimi.</h3><p>Çalışma saatlerinden hizmetlerine, her şey senin kontrolünde.</p></div><button class="btn btn-secondary" onclick="app.modal('guide')">Nasıl çalışır?</button></div>
     <div class="quick-guide"><div class="step"><b>01</b><strong>İşletmeni seç</strong><span>Paneline giriş yap.</span></div><div class="step"><b>02</b><strong>Takvimini düzenle</strong><span>Saatlerini, hizmetlerini ve kapasiteni belirle.</span></div><div class="step"><b>03</b><strong>Rezervasyon almaya başla</strong><span>Müşteri görünümünü paylaş, rezervasyonları topla.</span></div></div>`;
@@ -442,6 +442,39 @@
     <div class="panel"><div class="booking-table full-table" id="booking-list"><div class="tr th"><span>Müşteri</span><span>Tarih / Hizmet</span><span>Durum</span><span>İşlem</span></div>${list.length ? list.map(fullRow).join('') : '<div class="empty">Bu filtreye uygun rezervasyon yok.<br><small>Filtreleri değiştir ya da yeni bir rezervasyon oluştur.</small></div>'}</div></div>`;
   }
 
+  /* ---------- view: business page editor ---------- */
+  function galleryMarkup(images) {
+    return (images || []).map((src, i) => `<div class="editor-thumb"><img src="${esc(src)}" alt="İşletme görseli ${i + 1}"><button type="button" aria-label="Görseli kaldır" onclick="app.removeGalleryImage(${i})">×</button></div>`).join('');
+  }
+
+  function editor() {
+    const b = active();
+    const gallery = Array.isArray(b.gallery_images) ? b.gallery_images : [];
+    const s = settingsOf(b.id);
+    return `<div class="section-heading"><div><div class="eyebrow">İŞLETME WEB SAYFASI</div><h1>Sayfa düzenleyici</h1><p class="muted">${esc(b.name)} için logo, görseller, metinler ve müşteri deneyimini tek yerden düzenle.</p></div><div class="heading-actions"><button class="btn btn-secondary" onclick="app.openBook()">Müşteri görünümünü önizle ↗</button><button class="btn btn-primary" form="profile-form" type="submit">Değişiklikleri kaydet</button></div></div>
+      <div class="editor-tabs"><span class="is-active">İçerik ve görünüm</span><button type="button" onclick="app.view('settings')">Randevu, hizmet ve saatler →</button></div>
+      <form class="editor-layout" id="profile-form" onsubmit="app.saveProfile(event)">
+        <div class="editor-main">
+          <section class="panel editor-section"><div class="panel-head"><div><h3>Sayfa metinleri</h3><small class="muted">Müşterilerin işletme sayfanda göreceği başlıklar.</small></div><span class="pill">İçerik</span></div>
+            <label class="field">İşletme adı<input name="business_name" value="${esc(b.name)}" required maxlength="160"></label>
+            <label class="field">Kısa tanıtım cümlesi<input name="tagline" value="${esc(b.tagline || '')}" maxlength="160" placeholder="Örn. Kendine iyi bakmanın yeni adresi"></label>
+            <label class="field">Kısa açıklama<textarea name="about" rows="3" maxlength="1000" placeholder="İşletmen hakkında kısa bir tanıtım yazısı">${esc(b.about || '')}</textarea></label>
+            <label class="field">Hakkımızda / detaylı yazı<textarea name="page_content" rows="6" maxlength="4000" placeholder="Hizmetini, yaklaşımını veya müşterilerin bilmesini istediğin ayrıntıları yaz…">${esc(b.page_content || '')}</textarea></label>
+          </section>
+          <section class="panel editor-section"><div class="panel-head"><div><h3>Marka ve görseller</h3><small class="muted">Yüklenen görseller bu tarayıcıdaki demo verisinde saklanır.</small></div><span class="pill">Görünüm</span></div>
+            <div class="editor-media-grid"><div class="media-control"><span class="field-label">İşletme logosu</span><div class="media-preview logo-preview" id="logo-preview">${b.logo_url ? `<img src="${esc(b.logo_url)}" alt="İşletme logosu">` : `<span>${esc((b.name || 'R').charAt(0))}</span>`}</div><label class="btn btn-secondary file-btn">Logo seç<input type="file" accept="image/*" onchange="app.uploadProfileImage(this,'logo_url')"></label><input type="hidden" name="logo_url" value="${esc(b.logo_url || '')}"></div>
+              <div class="media-control"><span class="field-label">Kapak görseli</span><div class="media-preview cover-preview" id="cover-preview">${b.cover_image_url ? `<img src="${esc(b.cover_image_url)}" alt="Kapak görseli">` : '<span>Kapak görseli ekle</span>'}</div><label class="btn btn-secondary file-btn">Kapak seç<input type="file" accept="image/*" onchange="app.uploadProfileImage(this,'cover_image_url')"></label><input type="hidden" name="cover_image_url" value="${esc(b.cover_image_url || '')}"></div></div>
+            <div class="field"><span>Fotoğraf galerisi <span class="hint">En fazla 6 görsel</span></span><label class="btn btn-secondary file-btn">Görsel ekle<input type="file" accept="image/*" multiple onchange="app.uploadProfileGallery(this)"></label></div>
+            <input type="hidden" name="gallery_images" id="gallery-images" value="${esc(JSON.stringify(gallery))}"><div class="editor-gallery" id="gallery-preview">${galleryMarkup(gallery)}</div>
+          </section>
+          <section class="panel editor-section"><div class="panel-head"><div><h3>İletişim ve bağlantılar</h3><small class="muted">Müşterilerin sana ulaşabileceği bilgileri ekle.</small></div><span class="pill">İletişim</span></div>
+            <div class="form-grid"><label class="field">Telefon<input name="contact_phone" type="tel" value="${esc(b.contact_phone || '')}" maxlength="40" placeholder="+90 5xx xxx xx xx"></label><label class="field">Web sitesi<input name="website_url" type="url" value="${esc(b.website_url || '')}" placeholder="https://"></label><label class="field full">Instagram / sosyal bağlantı<input name="instagram_url" type="url" value="${esc(b.instagram_url || '')}" placeholder="https://instagram.com/…"></label></div>
+          </section>
+        </div>
+        <aside class="editor-aside"><div class="panel editor-preview"><div class="panel-head"><h3>Sayfa görünümü</h3><span class="pill pill-green">Önizleme</span></div><div class="editor-preview-cover">${b.cover_image_url ? `<img src="${esc(b.cover_image_url)}" alt="Kapak">` : '<span>Kapak görseli</span>'}</div><div class="editor-preview-brand">${b.logo_url ? `<img src="${esc(b.logo_url)}" alt="Logo">` : `<span>${esc((b.name || 'R').charAt(0))}</span>`}<div><b>${esc(b.name)}</b><small>${esc(b.tagline || b.type || 'İşletme')}</small></div></div><p class="muted small">${esc(b.about || 'İşletme tanıtım yazın burada görünecek.')}</p><button class="btn btn-primary" type="button" onclick="app.openBook()">Randevu al</button></div><div class="panel editor-aside-note"><strong>Randevu almaya hazır mısın?</strong><p class="muted small">Hizmetleri, çalışma saatlerini ve kapasiteyi randevu ayarlarından yönet. Yeni randevuları takvimden veya rezervasyonlar sayfasından ekleyebilirsin.</p><button class="text-btn" type="button" onclick="app.view('settings')">Randevu ayarlarına git →</button></div></aside>
+      </form>`;
+  }
+
   /* ---------- view: settings ---------- */
   function settings() {
     const s = settingsOf(active().id), b = active();
@@ -502,7 +535,8 @@
 
     let body = '';
     if (w.step === 1) {
-      body = `<div class="wz-title"><h2>Hangi hizmeti istiyorsun?</h2><p class="muted">${esc(b.name)} · ${esc(b.location)}</p></div><div class="service-grid">${(s.services || []).map(name => `<button type="button" class="service-card ${w.service === name ? 'is-selected' : ''}" onclick="app.wizSet('service','${esc(name)}')"><span class="service-check">${w.service === name ? svg('check', 14) : ''}</span><strong>${esc(name)}</strong><small>${Math.max(15, Number(s.duration) || 30)} dk · ${esc(s.start)}–${esc(s.end)}</small></button>`).join('')}</div><div class="party-row"><span>Kaç kişi?</span><div class="stepper"><button type="button" onclick="app.wizParty(-1)" aria-label="Azalt">−</button><strong>${w.party}</strong><button type="button" onclick="app.wizParty(1)" aria-label="Artır">+</button></div></div>`;
+      const gallery = Array.isArray(b.gallery_images) ? b.gallery_images : [];
+      body = `${b.cover_image_url ? `<img class="booking-cover" src="${esc(b.cover_image_url)}" alt="${esc(b.name)}">` : ''}<div class="booking-business-intro">${b.logo_url ? `<img src="${esc(b.logo_url)}" alt="${esc(b.name)} logosu">` : ''}<div><h2>${esc(b.name)}</h2><p>${esc(b.tagline || b.location || '')}</p></div></div><div class="wz-title"><h2>Hangi hizmeti istiyorsun?</h2><p class="muted">${esc(b.about || b.location || '')}</p></div>${b.page_content ? `<div class="booking-story">${esc(b.page_content).replace(/\n/g, '<br>')}</div>` : ''}${gallery.length ? `<div class="booking-gallery">${gallery.map(src => `<img src="${esc(src)}" alt="${esc(b.name)} görseli">`).join('')}</div>` : ''}<div class="service-grid">${(s.services || []).map(name => `<button type="button" class="service-card ${w.service === name ? 'is-selected' : ''}" onclick="app.wizSet('service','${esc(name)}')"><span class="service-check">${w.service === name ? svg('check', 14) : ''}</span><strong>${esc(name)}</strong><small>${Math.max(15, Number(s.duration) || 30)} dk · ${esc(s.start)}–${esc(s.end)}</small></button>`).join('')}</div><div class="party-row"><span>Kaç kişi?</span><div class="stepper"><button type="button" onclick="app.wizParty(-1)" aria-label="Azalt">−</button><strong>${w.party}</strong><button type="button" onclick="app.wizParty(1)" aria-label="Artır">+</button></div></div>`;
     } else if (w.step === 2) {
       const dates = openDates(b.id);
       const slots = slotsFor(b.id);
@@ -750,6 +784,91 @@
     toast('Ayarlar kaydedildi.');
   }
 
+  function imageDataUrl(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return Promise.reject(new Error('Lütfen bir görsel dosyası seç.'));
+    if (file.size > 8 * 1024 * 1024) return Promise.reject(new Error('Görsel 8 MB sınırını aşmamalı.'));
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Görsel okunamadı.'));
+      reader.onload = () => {
+        const image = new Image();
+        image.onerror = () => reject(new Error('Bu görsel açılamadı.'));
+        image.onload = () => {
+          const scale = Math.min(1, 900 / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/webp', 0.68));
+        };
+        image.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadProfileImage(input, field) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      const src = await imageDataUrl(file);
+      const hidden = input.closest('.media-control')?.querySelector(`input[name="${field}"]`);
+      if (hidden) hidden.value = src;
+      const preview = document.getElementById(field === 'logo_url' ? 'logo-preview' : 'cover-preview');
+      if (preview) preview.innerHTML = `<img src="${esc(src)}" alt="${field === 'logo_url' ? 'İşletme logosu' : 'Kapak görseli'}">`;
+    } catch (error) { toast(error.message || 'Görsel eklenemedi.'); input.value = ''; }
+  }
+
+  async function uploadProfileGallery(input) {
+    const hidden = $('#gallery-images');
+    if (!hidden) return;
+    let images = [];
+    try { images = JSON.parse(hidden.value || '[]'); } catch (_) { images = []; }
+    const files = Array.from(input.files || []);
+    if (images.length + files.length > 6) { toast('Galeriye en fazla 6 görsel ekleyebilirsin.'); input.value = ''; return; }
+    try {
+      for (const file of files) images.push(await imageDataUrl(file));
+      hidden.value = JSON.stringify(images);
+      const root = $('#gallery-preview');
+      if (root) root.innerHTML = galleryMarkup(images);
+    } catch (error) { toast(error.message || 'Galeri görseli eklenemedi.'); }
+    input.value = '';
+  }
+
+  function removeGalleryImage(index) {
+    const hidden = $('#gallery-images');
+    if (!hidden) return;
+    let images = [];
+    try { images = JSON.parse(hidden.value || '[]'); } catch (_) { images = []; }
+    images.splice(index, 1);
+    hidden.value = JSON.stringify(images);
+    const root = $('#gallery-preview');
+    if (root) root.innerHTML = galleryMarkup(images);
+  }
+
+  function saveProfile(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const values = new FormData(form);
+    const b = active();
+    b.name = String(values.get('business_name') || '').trim();
+    b.tagline = String(values.get('tagline') || '').trim();
+    b.about = String(values.get('about') || '').trim();
+    b.page_content = String(values.get('page_content') || '').trim();
+    b.contact_phone = String(values.get('contact_phone') || '').trim();
+    b.website_url = String(values.get('website_url') || '').trim();
+    b.instagram_url = String(values.get('instagram_url') || '').trim();
+    b.logo_url = String(values.get('logo_url') || '');
+    b.cover_image_url = String(values.get('cover_image_url') || '');
+    try { b.gallery_images = JSON.parse(String(values.get('gallery_images') || '[]')); } catch (_) { b.gallery_images = []; }
+    data.settingsByBusiness[b.id].businessName = b.name;
+    data.settings = clone(settingsOf(b.id));
+    persist();
+    render();
+    toast('İşletme sayfası kaydedildi.');
+  }
+
   function exportData() {
     const payload = JSON.stringify(data, null, 2);
     const blob = new Blob([payload], { type: 'application/json' });
@@ -941,7 +1060,7 @@
   }
 
   window.app = {
-    view, select, modal, close, toast, saveSettings, addBooking, auth, addBusiness, preview: openBook, setTab,
+    view, select, modal, close, toast, saveSettings, saveProfile, uploadProfileImage, uploadProfileGallery, removeGalleryImage, addBooking, auth, addBusiness, preview: openBook, setTab,
     filterBookings, cancelBooking, setBookingStatus, removeBooking, toggleTheme,
     pickDay, shiftMonth, goToday, setFilter, notifications,
     openBook, closeBook, wizSet, wizParty, wizNext, wizBack, submitWizard, restartWizard,

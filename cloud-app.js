@@ -25,6 +25,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   const parseDate = value => { const [y, m, d] = String(value).slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d); };
   const shiftDate = (value, amount) => { const d = parseDate(value); d.setDate(d.getDate() + amount); return dateISO(d); };
   const slugify = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'isletme';
+  const safeWebUrl = value => { try { const url = new URL(String(value || '')); return ['https:', 'http:'].includes(url.protocol) ? url.href : ''; } catch (_) { return ''; } };
   const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
   const weekdays = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
   const weekdayShort = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
@@ -40,6 +41,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     filters: { query: '', status: '', range: 'upcoming' },
     publicBusiness: null,
     publicFlow: { step: 1, service: '', party: 1, date: localDate(), time: '', slots: [], loading: false, result: null, error: '' },
+    profileDraft: null,
     modalType: null,
     pendingVerificationEmail: '',
     resendCooldownUntil: 0,
@@ -76,7 +78,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   function setHeader() {
     document.body.classList.add('cloud-mode');
     const b = active();
-    const title = { businesses: 'İşletmelerim', overview: 'Genel bakış', calendar: 'Takvim', bookings: 'Rezervasyonlar', settings: 'Özelleştirme' }[state.view] || 'İşletmelerim';
+    const title = { businesses: 'İşletmelerim', overview: 'Genel bakış', calendar: 'Takvim', bookings: 'Rezervasyonlar', settings: 'Randevu ayarları', editor: 'Sayfa düzenleyici' }[state.view] || 'İşletmelerim';
     const workspace = $('#business-name');
     if (workspace) workspace.textContent = b ? b.name : 'Çalışma alanım';
     const count = document.querySelector('.nav-count');
@@ -259,7 +261,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     const cards = state.businesses.map(b => {
       const count = liveBookings(b.id).length;
       const todayCount = liveBookings(b.id).filter(x => x.booking_date === nowDate).length;
-      return `<article class="business-card ${b.id === state.selected ? 'selected' : ''}"><div class="card-image cloud-card-image" style="--biz-color:${esc(b.color || '#255a4c')}"><span class="preview-logo">${esc((b.name || 'R').charAt(0))}</span><span class="category">${esc(b.category || 'İşletme')}</span><span class="pill ${b.is_published ? 'pill-green' : ''}">${b.is_published ? 'Yayında' : 'Taslak'}</span></div><div class="card-body"><h3>${esc(b.name)}</h3><div class="card-meta"><span>${esc(b.location || 'Konum eklenmedi')}</span><span>${count} randevu</span></div><div class="card-meta card-meta-tight"><span>Bugün ${todayCount} randevu</span><span>${b.is_published ? 'Müşteri alıyor' : 'Yayımlanmadı'}</span></div><button class="business-cta" data-action="select-business" data-id="${esc(b.id)}">Yönetim panelini aç →</button></div></article>`;
+      return `<article class="business-card ${b.id === state.selected ? 'selected' : ''}"><div class="card-image cloud-card-image" style="--biz-color:${esc(b.color || '#255a4c')}">${b.cover_image_url ? `<img class="business-card-cover" src="${esc(b.cover_image_url)}" alt="${esc(b.name)} kapak görseli">` : ''}${b.logo_url ? `<img class="business-card-logo" src="${esc(b.logo_url)}" alt="${esc(b.name)} logosu">` : `<span class="preview-logo">${esc((b.name || 'R').charAt(0))}</span>`}<span class="category">${esc(b.category || 'İşletme')}</span><span class="pill ${b.is_published ? 'pill-green' : ''}">${b.is_published ? 'Yayında' : 'Taslak'}</span></div><div class="card-body"><h3>${esc(b.name)}</h3><div class="card-meta"><span>${esc(b.location || 'Konum eklenmedi')}</span><span>${count} randevu</span></div><div class="card-meta card-meta-tight"><span>Bugün ${todayCount} randevu</span><span>${b.is_published ? 'Müşteri alıyor' : 'Yayımlanmadı'}</span></div><button class="business-cta" data-action="select-business" data-id="${esc(b.id)}">Yönetim panelini aç →</button></div></article>`;
     }).join('');
     return `<div class="section-heading"><div><div class="eyebrow">İŞLETME ALANI</div><h1>İşletmelerim</h1><p class="muted">${state.businesses.length} işletme · ${total} aktif randevu</p></div><button class="btn btn-primary" data-action="new-business">+ İşletme ekle</button></div><div class="business-grid">${cards}</div>`;
   }
@@ -316,6 +318,45 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     return `<div class="section-heading"><div><div class="eyebrow">RANDEVULAR</div><h1>${esc(b.name)}</h1><p class="muted">${liveBookings(b.id).length} aktif randevu · ${liveBookings(b.id).filter(x => x.status === 'pending').length} onay bekliyor.</p></div><button class="btn btn-primary" data-action="new-booking">+ Yeni randevu</button></div><div class="booking-toolbar"><label class="search-field"><input id="cloud-booking-search" type="search" placeholder="Müşteri, e-posta veya hizmet ara…" value="${esc(state.filters.query)}"></label><select id="cloud-status-filter"><option value="">Tüm durumlar</option><option value="confirmed" ${state.filters.status === 'confirmed' ? 'selected' : ''}>Onaylı</option><option value="pending" ${state.filters.status === 'pending' ? 'selected' : ''}>Bekliyor</option><option value="cancelled" ${state.filters.status === 'cancelled' ? 'selected' : ''}>İptal</option></select><select id="cloud-range-filter"><option value="upcoming" ${state.filters.range === 'upcoming' ? 'selected' : ''}>Yaklaşan</option><option value="past" ${state.filters.range === 'past' ? 'selected' : ''}>Geçmiş</option><option value="all" ${state.filters.range === 'all' ? 'selected' : ''}>Tümü</option></select></div><div class="panel"><div class="booking-table full-table"><div class="tr th"><span>Müşteri</span><span>Tarih / Saat</span><span>Durum</span><span>İşlem</span></div>${rows.length ? rows.map(bookingRow).join('') : '<div class="empty">Bu filtreye uygun randevu bulunamadı.</div>'}</div></div>`;
   }
 
+  function profileDraftFor(b) {
+    if (!state.profileDraft || state.profileDraft.business_id !== b.id) {
+      state.profileDraft = { business_id: b.id, logo_url: b.logo_url || '', cover_image_url: b.cover_image_url || '', gallery_images: Array.isArray(b.gallery_images) ? b.gallery_images.slice(0, 6) : [] };
+    }
+    return state.profileDraft;
+  }
+
+  function editorGalleryMarkup(images) {
+    return (images || []).map((url, index) => `<div class="editor-thumb"><img src="${esc(url)}" alt="İşletme görseli ${index + 1}"><button type="button" aria-label="Görseli kaldır" data-action="remove-gallery" data-index="${index}">×</button></div>`).join('');
+  }
+
+  function editorView() {
+    const b = active();
+    if (!b) return onboarding();
+    const media = profileDraftFor(b);
+    return `<div class="section-heading"><div><div class="eyebrow">İŞLETME WEB SAYFASI</div><h1>Sayfa düzenleyici</h1><p class="muted">Logo, görseller, metinler ve müşteri deneyimini tek panelden özelleştirin.</p></div><div class="heading-actions"><button class="btn btn-secondary" data-action="open-link">Müşteri sayfasını önizle ↗</button><button class="btn btn-primary" data-action="save-profile">Değişiklikleri kaydet</button></div></div>
+      <div class="editor-tabs"><span class="is-active">İçerik ve görünüm</span><button type="button" data-action="view-settings">Randevu, hizmet ve saatler →</button></div>
+      <form class="editor-layout" id="cloud-profile-form">
+        <div class="editor-main">
+          <section class="panel editor-section"><div class="panel-head"><div><h3>Sayfa metinleri</h3><small class="muted">İşletmenizin müşterilere görünen tanıtımı.</small></div><span class="pill">İçerik</span></div>
+            <label class="field">İşletme adı<input name="name" value="${esc(b.name)}" required maxlength="160"></label>
+            <div class="form-grid"><label class="field">İşletme türü<input name="category" value="${esc(b.category || '')}" maxlength="120"></label><label class="field">Konum<input name="location" value="${esc(b.location || '')}" maxlength="300"></label></div>
+            <label class="field">Kısa tanıtım cümlesi<input name="tagline" value="${esc(b.tagline || '')}" maxlength="160" placeholder="Örn. Kendine iyi bakmanın yeni adresi"></label>
+            <label class="field">Kısa açıklama<textarea name="about" rows="3" maxlength="1000" placeholder="İşletmenizi kısaca tanıtın">${esc(b.about || '')}</textarea></label>
+            <label class="field">Hakkımızda / detaylı yazı<textarea name="page_content" rows="6" maxlength="4000" placeholder="Hizmetlerinizi, yaklaşımınızı veya müşterilerin bilmesini istediğiniz ayrıntıları yazın…">${esc(b.page_content || '')}</textarea></label>
+          </section>
+          <section class="panel editor-section"><div class="panel-head"><div><h3>Logo ve görseller</h3><small class="muted">Dosyalar işletmenizin güvenli medya alanına yüklenir.</small></div><span class="pill">Görünüm</span></div>
+            <div class="editor-media-grid"><div class="media-control"><span class="field-label">İşletme logosu</span><div class="media-preview logo-preview" id="cloud-logo-preview">${media.logo_url ? `<img src="${esc(media.logo_url)}" alt="İşletme logosu">` : `<span>${esc((b.name || 'R').charAt(0))}</span>`}</div><label class="btn btn-secondary file-btn">Logo yükle<input type="file" accept="image/*" data-profile-image="logo_url"></label></div>
+              <div class="media-control"><span class="field-label">Kapak görseli</span><div class="media-preview cover-preview" id="cloud-cover-preview">${media.cover_image_url ? `<img src="${esc(media.cover_image_url)}" alt="Kapak görseli">` : '<span>Kapak görseli ekleyin</span>'}</div><label class="btn btn-secondary file-btn">Kapak yükle<input type="file" accept="image/*" data-profile-image="cover_image_url"></label></div></div>
+            <div class="gallery-heading"><div><strong>Fotoğraf galerisi</strong><small class="muted">En fazla 6 görsel</small></div><label class="btn btn-secondary file-btn">Görsel ekle<input type="file" accept="image/*" multiple data-profile-image="gallery_images"></label></div><div class="editor-gallery" id="cloud-gallery-preview">${editorGalleryMarkup(media.gallery_images)}</div>
+          </section>
+          <section class="panel editor-section"><div class="panel-head"><div><h3>İletişim ve marka rengi</h3><small class="muted">Müşterilerin işletmenizi bulmasını kolaylaştırın.</small></div><span class="pill">Bağlantılar</span></div>
+            <div class="form-grid"><label class="field">Telefon<input name="contact_phone" type="tel" value="${esc(b.contact_phone || '')}" maxlength="80" placeholder="+90 5xx xxx xx xx"></label><label class="field">Tema rengi<input name="theme_color" type="color" value="${esc(b.color || '#255a4c')}"></label><label class="field">Web sitesi<input name="website_url" type="url" value="${esc(b.website_url || '')}" placeholder="https://"></label><label class="field">Instagram / sosyal bağlantı<input name="instagram_url" type="url" value="${esc(b.instagram_url || '')}" placeholder="https://instagram.com/…"></label></div>
+          </section>
+        </div>
+        <aside class="editor-aside"><div class="panel editor-preview"><div class="panel-head"><h3>Canlı sayfa kartı</h3><span class="pill pill-green">Önizleme</span></div><div class="editor-preview-cover">${media.cover_image_url ? `<img src="${esc(media.cover_image_url)}" alt="Kapak">` : '<span>Kapak görseli</span>'}</div><div class="editor-preview-brand">${media.logo_url ? `<img src="${esc(media.logo_url)}" alt="Logo">` : `<span>${esc((b.name || 'R').charAt(0))}</span>`}<div><b>${esc(b.name)}</b><small>${esc(b.tagline || b.category || 'İşletme')}</small></div></div><p class="muted small">${esc(b.about || 'İşletme tanıtım yazınız burada görünecek.')}</p><button class="btn btn-primary" type="button" data-action="open-link">Randevu bağlantısını aç</button></div><div class="panel editor-aside-note"><strong>Randevu yönetimi</strong><p class="muted small">Hizmetleri, çalışma saatlerini ve kapasiteyi ayarlardan düzenleyin. Takvim veya rezervasyonlar sayfasından işletme adına yeni randevu oluşturabilirsiniz.</p><button class="text-btn" type="button" data-action="view-settings">Randevu ayarlarına git →</button></div><div class="panel cloud-public-panel"><div class="panel-head"><h3>Yayın durumu</h3><span class="pill ${b.is_published ? 'pill-green' : ''}">${b.is_published ? 'Yayında' : 'Taslak'}</span></div><p class="muted small">Müşterilerin görebilmesi için işletme bağlantısını Randevu ayarlarından yayımlayın.</p></div></aside>
+      </form>`;
+  }
+
   function settingsView() {
     const b = active();
     if (!b) return onboarding();
@@ -332,7 +373,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (!root) return;
     if (!state.businesses.length) root.innerHTML = onboarding();
     else {
-      const views = { businesses: businessesView, overview: overviewView, calendar: calendarView, bookings: bookingsView, settings: settingsView };
+      const views = { businesses: businessesView, overview: overviewView, calendar: calendarView, bookings: bookingsView, settings: settingsView, editor: editorView };
       root.innerHTML = (views[state.view] || businessesView)();
     }
   }
@@ -425,7 +466,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (!slug) return false;
     document.body.classList.add('booking-public', 'cloud-loading');
     document.body.classList.remove('cloud-guest');
-    const { data, error } = await db.from('businesses').select('id,slug,name,category,location,about,theme_color,timezone,duration_minutes,capacity,advance_booking_days,weekdays,published').eq('slug', slug).eq('published', true).maybeSingle();
+    const { data, error } = await db.from('businesses').select('id,slug,name,category,location,about,theme_color,timezone,duration_minutes,capacity,advance_booking_days,weekdays,published,tagline,page_content,logo_url,cover_image_url,gallery_images,contact_phone,website_url,instagram_url').eq('slug', slug).eq('published', true).maybeSingle();
     if (error || !data) {
       state.publicBusiness = { name: 'İşletme bulunamadı', unavailable: true };
       renderPublic();
@@ -452,7 +493,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   function publicHeader(b) {
-    return `<div class="public-brand"><span class="public-mark" style="background:${esc(b.color || '#255a4c')}">${esc((b.name || 'R').charAt(0))}</span><span><b>${esc(b.name)}</b><small>${esc(b.category || 'Randevu')}</small></span></div>`;
+    return `<div class="public-brand">${b.logo_url ? `<img class="public-mark-image" src="${esc(b.logo_url)}" alt="${esc(b.name)} logosu">` : `<span class="public-mark" style="background:${esc(b.color || '#255a4c')}">${esc((b.name || 'R').charAt(0))}</span>`}<span><b>${esc(b.name)}</b><small>${esc(b.tagline || b.category || 'Randevu')}</small></span></div>`;
   }
 
   function renderPublic() {
@@ -470,7 +511,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (flow.result) {
       content = `<div class="public-success"><span class="confirm-icon">✓</span><h1>Randevu isteğiniz alındı</h1><p class="muted">${esc(b.name)} işletmesine iletildi. İşletme onayladığında randevunuz kesinleşir.</p><div class="confirm-code"><small>RANDEVU KODU</small><strong>${esc(flow.result.booking_code)}</strong></div><dl class="confirm-list"><div><dt>Hizmet</dt><dd>${esc(flow.service)}</dd></div><div><dt>Tarih</dt><dd>${esc(dateLabel(flow.date))}</dd></div><div><dt>Saat</dt><dd>${esc(timeLabel(flow.time))}</dd></div><div><dt>Ad soyad</dt><dd>${esc(flow.customerName)}</dd></div></dl><button class="btn btn-secondary" data-action="public-restart">Yeni randevu al</button></div>`;
     } else if (flow.step === 1) {
-      content = `<div class="public-title"><h1>Bir hizmet seçin</h1><p class="muted">${esc(b.about || b.location || 'Size uygun bir randevu zamanı seçin.')}</p></div><div class="public-service-grid">${servicesOf(b).map(service => `<button class="public-service ${flow.service === service ? 'selected' : ''}" data-action="public-service" data-service="${esc(service)}"><span>${esc(service)}</span><small>${Number(b.duration_minutes)} dakika</small></button>`).join('') || '<p>Bu işletme henüz hizmet eklememiş.</p>'}</div><label class="field public-party">Kişi sayısı<input type="number" min="1" max="${Number(b.capacity) || 1}" value="${Number(flow.party)}" id="public-party"></label><div class="public-actions"><button class="btn btn-primary" data-action="public-next" ${servicesOf(b).length ? '' : 'disabled'}>Tarih ve saat seç →</button></div>`;
+      const gallery = Array.isArray(b.gallery_images) ? b.gallery_images.slice(0, 6) : [];
+      content = `<div class="public-title"><h1>${esc(b.tagline || 'Bir hizmet seçin')}</h1><p class="muted">${esc(b.about || b.location || 'Size uygun bir randevu zamanı seçin.')}</p></div>${b.page_content ? `<div class="public-story">${esc(b.page_content).replace(/\n/g, '<br>')}</div>` : ''}${gallery.length ? `<div class="public-gallery">${gallery.map((url, i) => `<img src="${esc(url)}" alt="${esc(b.name)} görseli ${i + 1}" loading="lazy">`).join('')}</div>` : ''}<h2 class="public-section-heading">Hizmetler</h2><div class="public-service-grid">${servicesOf(b).map(service => `<button class="public-service ${flow.service === service ? 'selected' : ''}" data-action="public-service" data-service="${esc(service)}"><span>${esc(service)}</span><small>${Number(b.duration_minutes)} dakika</small></button>`).join('') || '<p>Bu işletme henüz hizmet eklememiş.</p>'}</div><label class="field public-party">Kişi sayısı<input type="number" min="1" max="${Number(b.capacity) || 1}" value="${Number(flow.party)}" id="public-party"></label><div class="public-actions"><button class="btn btn-primary" data-action="public-next" ${servicesOf(b).length ? '' : 'disabled'}>Tarih ve saat seç →</button></div>`;
     } else if (flow.step === 2) {
       const today = localDate(b.timezone);
       const max = shiftDate(today, Number(b.date_range) || 30);
@@ -480,7 +522,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
       content = `<div class="public-title"><h1>İletişim bilgilerinizi girin</h1><p class="muted">${esc(flow.service)} · ${esc(dateLabel(flow.date))}, ${esc(timeLabel(flow.time))} · ${Number(flow.party)} kişi</p></div><form id="public-booking-form"><label class="field">Ad soyad<input name="customer_name" autocomplete="name" required minlength="2" maxlength="120"></label><div class="form-grid"><label class="field">E-posta<input name="customer_email" type="email" autocomplete="email" required maxlength="254"></label><label class="field">Telefon<input name="customer_phone" type="tel" autocomplete="tel" maxlength="40"></label></div><label class="field">Not <span class="hint">isteğe bağlı</span><textarea name="notes" rows="3" maxlength="1000"></textarea></label><p class="muted small">Randevu isteğiniz işletme tarafından onaylandığında kesinleşir.</p>${flow.error ? `<p class="cloud-error">${esc(flow.error)}</p>` : ''}<div class="public-actions"><button class="btn btn-ghost" type="button" data-action="public-back">Geri</button><button class="btn btn-primary" type="submit">Randevu isteği gönder</button></div></form>`;
     }
     const summary = `${esc(b.location || '')}${b.location ? ' · ' : ''}${esc(cleanTime(b.start_time))}–${esc(cleanTime(b.end_time))}`;
-    $('#content').innerHTML = `<div class="public-shell">${publicHeader(b)}<section class="public-card">${flow.result ? '' : steps}${content}</section><p class="public-footer">${summary}</p></div>`;
+    const cover = b.cover_image_url ? `<div class="public-cover"><img src="${esc(b.cover_image_url)}" alt="${esc(b.name)} kapak görseli"></div>` : '';
+    const website = safeWebUrl(b.website_url), instagram = safeWebUrl(b.instagram_url);
+    const contacts = [b.contact_phone ? `<a href="tel:${esc(b.contact_phone)}">${esc(b.contact_phone)}</a>` : '', website ? `<a href="${esc(website)}" target="_blank" rel="noopener noreferrer">Web sitesi</a>` : '', instagram ? `<a href="${esc(instagram)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : ''].filter(Boolean).join(' · ');
+    $('#content').innerHTML = `<div class="public-shell">${publicHeader(b)}${cover}<section class="public-card">${flow.result ? '' : steps}${content}</section><p class="public-footer">${summary}${contacts ? `<br>${contacts}` : ''}</p></div>`;
   }
 
   async function loadSlots() {
@@ -586,6 +631,108 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (error) { toast('Ayarlar kaydedilemedi: ' + error.message); return; }
     await loadWorkspace();
     toast('Ayarlar kaydedildi.');
+  }
+
+  function compressImage(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return Promise.reject(new Error('Lütfen bir görsel dosyası seçin.'));
+    if (file.size > 12 * 1024 * 1024) return Promise.reject(new Error('Görsel dosyası 12 MB sınırını aşmamalı.'));
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Görsel okunamadı.'));
+      reader.onload = () => {
+        const image = new Image();
+        image.onerror = () => reject(new Error('Bu görsel açılamadı.'));
+        image.onload = () => {
+          const scale = Math.min(1, 1800 / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Görsel dönüştürülemedi.')), 'image/webp', 0.82);
+        };
+        image.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadProfileImage(input) {
+    const business = active();
+    if (!business) return;
+    const kind = input.dataset.profileImage;
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const draft = profileDraftFor(business);
+    if (kind === 'gallery_images' && draft.gallery_images.length + files.length > 6) {
+      toast('Galeriye en fazla 6 görsel ekleyebilirsiniz.'); input.value = ''; return;
+    }
+    input.disabled = true;
+    try {
+      for (const file of files) {
+        const blob = await compressImage(file);
+        const objectPath = `${business.id}/${crypto.randomUUID()}.webp`;
+        const { error } = await db.storage.from('business-media').upload(objectPath, blob, { contentType: 'image/webp', cacheControl: '31536000', upsert: false });
+        if (error) throw error;
+        const { data } = db.storage.from('business-media').getPublicUrl(objectPath);
+        if (kind === 'gallery_images') draft.gallery_images.push(data.publicUrl);
+        else draft[kind] = data.publicUrl;
+      }
+      const logo = $('#cloud-logo-preview');
+      const cover = $('#cloud-cover-preview');
+      if (logo) logo.innerHTML = draft.logo_url ? `<img src="${esc(draft.logo_url)}" alt="İşletme logosu">` : `<span>${esc((business.name || 'R').charAt(0))}</span>`;
+      if (cover) cover.innerHTML = draft.cover_image_url ? `<img src="${esc(draft.cover_image_url)}" alt="Kapak görseli">` : '<span>Kapak görseli ekleyin</span>';
+      const gallery = $('#cloud-gallery-preview');
+      if (gallery) gallery.innerHTML = editorGalleryMarkup(draft.gallery_images);
+      const preview = $('.editor-preview-brand');
+      if (preview) preview.innerHTML = `${draft.logo_url ? `<img src="${esc(draft.logo_url)}" alt="Logo">` : `<span>${esc((business.name || 'R').charAt(0))}</span>`}<div><b>${esc(business.name)}</b><small>${esc(business.tagline || business.category || 'İşletme')}</small></div>`;
+      const previewCover = $('.editor-preview-cover');
+      if (previewCover) previewCover.innerHTML = draft.cover_image_url ? `<img src="${esc(draft.cover_image_url)}" alt="Kapak">` : '<span>Kapak görseli</span>';
+      toast(kind === 'gallery_images' ? 'Görsel yüklendi. Değişiklikleri kaydedin.' : 'Görsel yüklendi. Değişiklikleri kaydedin.');
+    } catch (error) {
+      toast('Görsel yüklenemedi: ' + (error.message || 'Bağlantı veya depolama ayarlarını kontrol edin.'));
+    } finally {
+      input.disabled = false;
+      input.value = '';
+    }
+  }
+
+  async function saveProfile(form) {
+    const business = active();
+    if (!business || !form?.reportValidity()) return;
+    const values = new FormData(form);
+    const media = profileDraftFor(business);
+    const { error } = await db.rpc('save_business_profile', {
+      p_business_id: business.id,
+      p_name: String(values.get('name') || '').trim(),
+      p_category: String(values.get('category') || '').trim(),
+      p_location: String(values.get('location') || '').trim(),
+      p_about: String(values.get('about') || '').trim(),
+      p_tagline: String(values.get('tagline') || '').trim(),
+      p_page_content: String(values.get('page_content') || '').trim(),
+      p_logo_url: media.logo_url,
+      p_cover_image_url: media.cover_image_url,
+      p_gallery_images: media.gallery_images,
+      p_contact_phone: String(values.get('contact_phone') || '').trim(),
+      p_website_url: String(values.get('website_url') || '').trim(),
+      p_instagram_url: String(values.get('instagram_url') || '').trim(),
+      p_theme_color: String(values.get('theme_color') || '#255a4c')
+    });
+    if (error) { toast('Sayfa kaydedilemedi: ' + error.message); return; }
+    state.profileDraft = null;
+    await loadWorkspace();
+    state.view = 'editor';
+    render();
+    toast('İşletme sayfası kaydedildi.');
+  }
+
+  function removeProfileImage(index) {
+    const business = active();
+    if (!business) return;
+    const draft = profileDraftFor(business);
+    draft.gallery_images.splice(index, 1);
+    const gallery = $('#cloud-gallery-preview');
+    if (gallery) gallery.innerHTML = editorGalleryMarkup(draft.gallery_images);
+    toast('Görsel taslaktan kaldırıldı. Kaydet ile değişikliği uygulayın.');
   }
 
   function bookingForm(date) {
@@ -750,6 +897,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     else if (action === 'select-business') selectedBusiness(target.dataset.id);
     else if (action === 'view-bookings') selectView('bookings');
     else if (action === 'view-calendar') selectView('calendar');
+    else if (action === 'view-settings') selectView('settings');
+    else if (action === 'save-profile') { const form = $('#cloud-profile-form'); if (form?.reportValidity()) saveProfile(form); }
+    else if (action === 'remove-gallery') removeProfileImage(Number(target.dataset.index));
     else if (action === 'save-settings') { const f = $('#cloud-settings-form'); if (f?.reportValidity()) saveSettings(f); }
     else if (action === 'new-booking') modal('booking', target.dataset.date || '');
     else if (action === 'copy-link') copyPublicLink();
@@ -767,7 +917,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
   }
 
   function onChange(event) {
-    if (event.target.id === 'public-date') { state.publicFlow.date = event.target.value; state.publicFlow.time = ''; loadSlots(); }
+    if (event.target.matches('input[type="file"][data-profile-image]')) uploadProfileImage(event.target);
+    else if (event.target.id === 'public-date') { state.publicFlow.date = event.target.value; state.publicFlow.time = ''; loadSlots(); }
     else if (event.target.id === 'public-party') { state.publicFlow.party = Math.max(1, Number(event.target.value) || 1); loadSlots(); }
     else if (event.target.id === 'cloud-booking-search') { state.filters.query = event.target.value; const pos = event.target.selectionStart; render(); const next = $('#cloud-booking-search'); next?.focus(); next?.setSelectionRange(pos, pos); }
     else if (event.target.id === 'cloud-status-filter') { state.filters.status = event.target.value; render(); }
@@ -780,6 +931,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
     if (form.matches('[data-auth-mode]')) { event.preventDefault(); authSubmit(form); }
     else if (form.id === 'business-create-form') { event.preventDefault(); createBusiness(form); }
     else if (form.id === 'cloud-settings-form') { event.preventDefault(); saveSettings(form); }
+    else if (form.id === 'cloud-profile-form') { event.preventDefault(); saveProfile(form); }
     else if (form.id === 'admin-booking-form') { event.preventDefault(); createAdminBooking(form); }
     else if (form.id === 'public-booking-form') { event.preventDefault(); submitPublicBooking(form); }
   }

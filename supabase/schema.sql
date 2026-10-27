@@ -24,6 +24,16 @@ create table if not exists public.businesses (
   updated_at timestamptz not null default now()
 );
 
+-- Additive website-builder profile fields. Existing businesses retain empty defaults.
+alter table public.businesses add column if not exists tagline text not null default '' check (length(tagline) <= 160);
+alter table public.businesses add column if not exists page_content text not null default '' check (length(page_content) <= 4000);
+alter table public.businesses add column if not exists logo_url text not null default '' check (length(logo_url) <= 2048);
+alter table public.businesses add column if not exists cover_image_url text not null default '' check (length(cover_image_url) <= 2048);
+alter table public.businesses add column if not exists gallery_images jsonb not null default '[]'::jsonb check (jsonb_typeof(gallery_images) = 'array');
+alter table public.businesses add column if not exists contact_phone text not null default '' check (length(contact_phone) <= 80);
+alter table public.businesses add column if not exists website_url text not null default '' check (length(website_url) <= 2048);
+alter table public.businesses add column if not exists instagram_url text not null default '' check (length(instagram_url) <= 2048);
+
 create table if not exists public.business_members (
   business_id uuid not null references public.businesses(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -241,6 +251,43 @@ begin
 end;
 $$;
 
+-- Profile content is changed through this owner-checked RPC, never by public table writes.
+create or replace function public.save_business_profile(
+  p_business_id uuid, p_name text, p_category text, p_location text, p_about text,
+  p_tagline text, p_page_content text, p_logo_url text, p_cover_image_url text,
+  p_gallery_images jsonb, p_contact_phone text, p_website_url text,
+  p_instagram_url text, p_theme_color text
+) returns void
+language plpgsql security definer set search_path = pg_catalog, public
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then raise exception 'authentication required' using errcode = '28000'; end if;
+  if not exists (select 1 from public.business_members m where m.business_id = p_business_id and m.user_id = v_user) then
+    raise exception 'business not found';
+  end if;
+  if p_name is null or length(btrim(p_name)) not between 1 and 160 then raise exception 'invalid business name'; end if;
+  if length(coalesce(p_category,'')) > 120 or length(coalesce(p_location,'')) > 300 then raise exception 'profile text too long'; end if;
+  if length(coalesce(p_about,'')) > 4000 or length(coalesce(p_tagline,'')) > 160 or length(coalesce(p_page_content,'')) > 4000 then raise exception 'profile text too long'; end if;
+  if length(coalesce(p_contact_phone,'')) > 80 then raise exception 'contact details too long'; end if;
+  if p_theme_color is null or p_theme_color !~ '^#[0-9A-Fa-f]{6}$' then raise exception 'invalid theme color'; end if;
+  if p_gallery_images is null or jsonb_typeof(p_gallery_images) <> 'array' or jsonb_array_length(p_gallery_images) > 6 then raise exception 'invalid business gallery'; end if;
+  if length(coalesce(p_logo_url,'')) > 2048 or length(coalesce(p_cover_image_url,'')) > 2048 then raise exception 'image address too long'; end if;
+  if (coalesce(p_logo_url,'') <> '' and p_logo_url !~ '^https://') or (coalesce(p_cover_image_url,'') <> '' and p_cover_image_url !~ '^https://') then raise exception 'image address must use HTTPS'; end if;
+  if exists (select 1 from jsonb_array_elements_text(p_gallery_images) as image(url) where length(image.url) > 2048 or image.url !~ '^https://') then raise exception 'gallery images must use HTTPS'; end if;
+  if (coalesce(p_website_url,'') <> '' and p_website_url !~ '^https?://') or (coalesce(p_instagram_url,'') <> '' and p_instagram_url !~ '^https?://') then raise exception 'website links must use HTTP or HTTPS'; end if;
+  update public.businesses set name=btrim(p_name), category=coalesce(btrim(p_category),''),
+    location=coalesce(btrim(p_location),''), about=coalesce(btrim(p_about),''),
+    tagline=coalesce(btrim(p_tagline),''), page_content=coalesce(btrim(p_page_content),''),
+    logo_url=coalesce(p_logo_url,''), cover_image_url=coalesce(p_cover_image_url,''),
+    gallery_images=p_gallery_images, contact_phone=coalesce(btrim(p_contact_phone),''),
+    website_url=coalesce(btrim(p_website_url),''), instagram_url=coalesce(btrim(p_instagram_url),''),
+    theme_color=p_theme_color
+    where id=p_business_id;
+end;
+$$;
+
 -- Internal helper: maximum simultaneous occupancy within a proposed interval.
 create or replace function public.slot_peak_load(p_business_id uuid, p_date date, p_time time, p_duration integer)
 returns integer language sql stable security definer set search_path = pg_catalog, public as $$
@@ -349,10 +396,43 @@ revoke all on function public.create_business(text,text,text,text,text) from pub
 grant execute on function public.create_business(text,text,text,text,text) to authenticated;
 revoke all on function public.update_business_settings(uuid,text,text,text,text,text,text,integer,integer,integer,smallint[],text[],jsonb,boolean) from public, anon, authenticated;
 grant execute on function public.update_business_settings(uuid,text,text,text,text,text,text,integer,integer,integer,smallint[],text[],jsonb,boolean) to authenticated;
+revoke all on function public.save_business_profile(uuid,text,text,text,text,text,text,text,text,jsonb,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.save_business_profile(uuid,text,text,text,text,text,text,text,text,jsonb,text,text,text,text) to authenticated;
 revoke all on function public.available_slots(text,date,integer) from public, anon, authenticated;
 grant execute on function public.available_slots(text,date,integer) to anon, authenticated;
 revoke all on function public.create_public_booking(text,date,time,text,integer,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.create_public_booking(text,date,time,text,integer,text,text,text,text) to anon, authenticated;
+
+-- Publicly readable images; uploads and object changes are limited to a business owner.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('business-media', 'business-media', true, 8388608, array['image/webp'])
+on conflict (id) do update set public=true, file_size_limit=8388608, allowed_mime_types=array['image/webp'];
+
+drop policy if exists business_media_public_read on storage.objects;
+create policy business_media_public_read on storage.objects for select to public
+  using (bucket_id = 'business-media');
+drop policy if exists business_media_owner_insert on storage.objects;
+create policy business_media_owner_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'business-media' and exists (
+    select 1 from public.business_members m
+    where m.business_id::text = (storage.foldername(name))[1] and m.user_id = (select auth.uid())
+  ));
+drop policy if exists business_media_owner_update on storage.objects;
+create policy business_media_owner_update on storage.objects for update to authenticated
+  using (bucket_id = 'business-media' and exists (
+    select 1 from public.business_members m
+    where m.business_id::text = (storage.foldername(name))[1] and m.user_id = (select auth.uid())
+  ))
+  with check (bucket_id = 'business-media' and exists (
+    select 1 from public.business_members m
+    where m.business_id::text = (storage.foldername(name))[1] and m.user_id = (select auth.uid())
+  ));
+drop policy if exists business_media_owner_delete on storage.objects;
+create policy business_media_owner_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'business-media' and exists (
+    select 1 from public.business_members m
+    where m.business_id::text = (storage.foldername(name))[1] and m.user_id = (select auth.uid())
+  ));
 
 -- Optional owner-side writes to services/hours can be added later through
 -- authenticated, owner-checked RPCs; direct anon writes remain impossible.
