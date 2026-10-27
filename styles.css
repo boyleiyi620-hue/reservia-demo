@@ -890,3 +890,29 @@ button.cloud-cal-cell:hover{background:var(--light-green)}
     font-size: 23px;
   }
 }
+
+
+@media (max-width: 760px) {
+  .row-actions {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .row-actions .mini-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .day-side .mini-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .top-actions .icon-btn,
+  .top-login {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
